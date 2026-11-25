@@ -1,0 +1,32 @@
+:root {
+  --paper: #fbfaf7;
+  --ink: #211f25;
+  --ink-hover: #423947;
+  --lilac: #d6c8f2;
+  --lilac-hover: #e9dfff;
+  --lilac-wash: #ede8f3;
+  --dark-surface: #27232d;
+  --dark-rule: #655e6b;
+  --dark-copy: #eeebf0;
+  --dark-muted: #d7d2dc;
+  --muted: #545159;
+  --accent-plum: #675380;
+  --rule: #c9c5c5;
+  --focus-ring: #7353ab;
+  --white: #ffffff;
+
+  --font-display: 'Barlow Condensed', 'Arial Narrow', 'Roboto Condensed', sans-serif;
+  --font-body: 'Manrope', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --radius: 3px;
+  --chamfer: 28px;
+  --gutter: clamp(22px, 5vw, 84px);
+  --container: 1600px;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --t-fast: 150ms;
+  --t-med: 220ms;
+
+  --fs-h1: clamp(64px, 9.5vw, 152px);
+  --fs-h2: clamp(42px, 5vw, 84px);
+  --fs-h3: clamp(20px, 1.8vw, 28px);
+}
