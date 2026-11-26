@@ -74,6 +74,8 @@ export interface GenerateOptions {
   anchors?: readonly Anchor[];
   /** Force an archetype (used by tests and retries). */
   archetype?: Archetype;
+  /** Extra constraint on the jittered point, e.g. "inside this state". */
+  accept?: (p: LatLng) => boolean;
 }
 
 function farEnough(p: LatLng, previous: readonly LatLng[], minKm: number): boolean {
@@ -133,7 +135,7 @@ export function generateCandidate(opts: GenerateOptions): LocationCandidate {
   for (let attempt = 0; attempt < 6; attempt++) {
     const anchor = pickAnchor(eligible, rng);
     const point = jitterWithinIndia(anchor, rng);
-    if (farEnough(point, previous, minKm) || attempt === 5) {
+    if ((farEnough(point, previous, minKm) && (opts.accept?.(point) ?? true)) || attempt === 5) {
       return { ...point, anchor, archetype };
     }
   }

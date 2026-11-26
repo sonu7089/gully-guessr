@@ -1,4 +1,6 @@
-import type { GameSettings, RegionPack, Ruleset, StateCode, TimerOption } from '../engine/types';
+import { CITY_BY_ID } from '../data/indiaCities';
+import { PLAYABLE_STATES } from '../engine/playArea';
+import type { GameScope, GameSettings, RegionPack, Ruleset, StateCode, TimerOption } from '../engine/types';
 
 const KEYS = {
   stats: 'gullyguessr:stats:v1',
@@ -39,7 +41,7 @@ export interface LocalStats {
 }
 
 export const EMPTY_STATS: LocalStats = { bestScore: 0, gamesCompleted: 0, totalDistanceKm: 0, guessedRounds: 0, bestRound: null };
-export const DEFAULT_SETTINGS: GameSettings = { pack: 'all', ruleset: 'standard', timer: 0 };
+export const DEFAULT_SETTINGS: GameSettings = { scope: 'india', pack: 'all', state: 'KA', city: 'bengaluru', ruleset: 'standard', timer: 0 };
 
 const MAX_MATCHES = 20;
 const MAX_RECENT_ANCHORS = 40;
@@ -116,14 +118,23 @@ export function resetStats(): void {
   }
 }
 
+const SCOPES: GameScope[] = ['india', 'state', 'city'];
 const PACKS: RegionPack[] = ['all', 'north', 'south', 'west', 'east', 'metro'];
 const RULESETS: Ruleset[] = ['standard', 'nomove', 'nmpz'];
 const TIMERS: TimerOption[] = [0, 60, 90, 120];
 
 export function loadSettings(): GameSettings {
-  const s = read(KEYS.settings, DEFAULT_SETTINGS);
+  return sanitizeSettings(read(KEYS.settings, DEFAULT_SETTINGS));
+}
+
+/** Coerces untrusted settings (old saves, network messages) into a valid game. */
+export function sanitizeSettings(raw: unknown): GameSettings {
+  const s = (raw && typeof raw === 'object' ? raw : {}) as GameSettings;
   return {
+    scope: SCOPES.includes(s.scope) ? s.scope : DEFAULT_SETTINGS.scope,
     pack: PACKS.includes(s.pack) ? s.pack : DEFAULT_SETTINGS.pack,
+    state: PLAYABLE_STATES.includes(s.state) ? s.state : DEFAULT_SETTINGS.state,
+    city: s.city in CITY_BY_ID ? s.city : DEFAULT_SETTINGS.city,
     ruleset: RULESETS.includes(s.ruleset) ? s.ruleset : DEFAULT_SETTINGS.ruleset,
     timer: TIMERS.includes(s.timer) ? s.timer : DEFAULT_SETTINGS.timer,
   };

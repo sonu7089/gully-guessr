@@ -1,28 +1,26 @@
 import { useEffect, useMemo, useState } from 'react';
-import { GAME_TITLE, MAX_GAME_SCORE } from '../config';
+import { GAME_TITLE, MAX_GAME_SCORE, MAX_ROUND_SCORE } from '../config';
 import { Footer } from '../components/Footer';
 import { Header } from '../components/Header';
-import { SummaryMap, type Vector } from '../components/Maps';
-import { ArrowButton } from '../components/ui';
 import { formatClock } from '../components/Hud';
+import { SummaryMap, type Vector } from '../components/Maps';
+import { Button, Eyebrow, PlayIcon, ProgressBar, useCountUp } from '../components/ui';
 import type { ProviderId } from '../engine/imageryProviders';
-import { REGION_PACKS } from '../engine/locationGenerator';
-import { formatDistance, formatScore, rankForScore } from '../utils/scoring';
+import { RULESET_INFO } from '../utils/labels';
+import { formatDistance, formatScore } from '../utils/scoring';
 import type { CompletedGame } from './GamePage';
 
-const RULESET_LABEL = { standard: 'Standard', nomove: 'No Move', nmpz: 'NMPZ' } as const;
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
 export function buildScoreCard(game: CompletedGame): string {
-  const pack = REGION_PACKS.find((p) => p.id === game.settings.pack)?.short ?? 'All India';
   const lines = game.rounds.map((r, i) => {
-    const filled = Math.round((r.points / 5000) * 5);
+    const filled = Math.round((r.points / MAX_ROUND_SCORE) * 5);
     const bar = '▰'.repeat(filled) + '▱'.repeat(5 - filled);
-    return `${pad2(i + 1)} ${bar} ${formatScore(r.points).padStart(5)} pts · ${formatDistance(r.distanceKm)} · ${r.stateName}`;
+    return `${pad2(i + 1)} ${bar} ${formatScore(r.points).padStart(5)} pts · ${formatDistance(r.distanceKm)} · ${r.locality}`;
   });
   return [
-    `${GAME_TITLE} · ${pack} · ${RULESET_LABEL[game.settings.ruleset]}${game.settings.timer ? ` · ${game.settings.timer}s` : ''}`,
-    `${formatScore(game.total)} / ${formatScore(MAX_GAME_SCORE)} — ${rankForScore(game.total)}`,
+    `${GAME_TITLE} · ${game.area.label} · ${RULESET_INFO[game.settings.ruleset].label}${game.settings.timer ? ` · ${game.settings.timer}s` : ''}`,
+    `${formatScore(game.total)} / ${formatScore(MAX_GAME_SCORE)} points`,
     ...lines,
   ].join('\n');
 }
@@ -39,11 +37,12 @@ interface SummaryPageProps {
 export function SummaryPage({ game, isNewBest, provider, onPlayAgain, onChangeMode, onHome }: SummaryPageProps) {
   const [selected, setSelected] = useState<number | null>(null);
   const [toast, setToast] = useState('');
-  const pack = REGION_PACKS.find((p) => p.id === game.settings.pack)?.short ?? 'All India';
-  const vectors: Vector[] = useMemo(
-    () => game.rounds.map((r, i) => ({ actual: r.actual, guess: r.guess, label: pad2(i + 1) })),
-    [game.rounds],
-  );
+  const shown = useCountUp(game.total, 1400, 0);
+  const vectors: Vector[] = useMemo(() => game.rounds.map((r, i) => ({ actual: r.actual, guess: r.guess, label: pad2(i + 1) })), [game.rounds]);
+  const best = game.rounds.reduce((b, r, i) => (r.points > game.rounds[b].points ? i : b), 0);
+  const pinned = game.rounds.filter((r) => r.distanceKm != null);
+  const avgKm = pinned.length ? pinned.reduce((s, r) => s + r.distanceKm!, 0) / pinned.length : null;
+  const totalTime = game.rounds.reduce((s, r) => s + r.timeTakenSec, 0);
 
   useEffect(() => {
     window.scrollTo({ top: 0 });
@@ -53,7 +52,7 @@ export function SummaryPage({ game, isNewBest, provider, onPlayAgain, onChangeMo
     const text = buildScoreCard(game);
     try {
       await navigator.clipboard.writeText(text);
-      setToast('Score card copied');
+      setToast('Copied to clipboard');
     } catch {
       const ta = document.createElement('textarea');
       ta.value = text;
@@ -61,98 +60,92 @@ export function SummaryPage({ game, isNewBest, provider, onPlayAgain, onChangeMo
       ta.select();
       const ok = document.execCommand('copy');
       ta.remove();
-      setToast(ok ? 'Score card copied' : 'Copy failed — select and copy manually');
+      setToast(ok ? 'Copied to clipboard' : 'Copy failed');
     }
     window.setTimeout(() => setToast(''), 2500);
   };
 
+  const select = (i: number) => setSelected((s) => (s === i ? null : i));
+
   return (
     <>
       <Header onPlayNow={onPlayAgain} onHome={onHome} />
-      <main>
-        <section className="band-dark summary-hero" aria-labelledby="summary-title">
-          <div className="container summary-hero__grid">
+      <div className="stars" aria-hidden="true" />
+      <main className="container summary">
+        <section className="panel final" aria-labelledby="summary-title">
+          <div className="final__total">
+            <Eyebrow>
+              Game finished · {game.area.label} · {RULESET_INFO[game.settings.ruleset].label}
+            </Eyebrow>
+            <h1 id="summary-title" className="final__points" aria-label={`${formatScore(game.total)} of ${formatScore(MAX_GAME_SCORE)} points`}>
+              <span aria-hidden="true">{formatScore(shown)}</span> <small>/ {formatScore(MAX_GAME_SCORE)} points</small>
+            </h1>
+            <ProgressBar value={game.total / MAX_GAME_SCORE} label="Game score" />
+            {isNewBest && <span className="badge-best">New personal best</span>}
+          </div>
+          <dl className="stat-row final__stats">
             <div>
-              <p className="eyebrow">
-                Match complete · {pack} · {RULESET_LABEL[game.settings.ruleset]}
-              </p>
-              <h1 id="summary-title" className="summary-total">
-                {formatScore(game.total)} <small>/ {formatScore(MAX_GAME_SCORE)}</small>
-              </h1>
+              <dd>{Math.round((game.total / MAX_GAME_SCORE) * 100)}%</dd>
+              <dt>Accuracy</dt>
             </div>
-            <div className="summary-rank">
-              <span className="eyebrow">Rank</span>
-              <p className="summary-rank__title">{rankForScore(game.total)}</p>
-              {isNewBest && <span className="badge badge--lilac">New personal best</span>}
+            <div>
+              <dd>{avgKm != null ? formatDistance(avgKm) : '—'}</dd>
+              <dt>Average distance</dt>
             </div>
-          </div>
+            <div>
+              <dd>{formatScore(game.rounds[best].points)}</dd>
+              <dt>Best round</dt>
+            </div>
+            <div>
+              <dd>{formatClock(totalTime)}</dd>
+              <dt>Total time</dt>
+            </div>
+          </dl>
         </section>
 
-        <section className="section" style={{ paddingTop: 'clamp(40px, 5vw, 72px)' }}>
-          <div className="container">
-            <div className="summary-map">
-              <SummaryMap vectors={vectors} selected={selected} onSelect={(i) => setSelected((s) => (s === i ? null : i))} />
-            </div>
+        <div className="summary__map">
+          <SummaryMap area={game.area} vectors={vectors} selected={selected} onSelect={select} />
+        </div>
 
-            <table className="rounds-table">
-              <thead>
-                <tr>
-                  <th scope="col">#</th>
-                  <th scope="col">Location</th>
-                  <th scope="col">State / UT</th>
-                  <th scope="col">Distance</th>
-                  <th scope="col" className="hide-sm">
-                    Time
-                  </th>
-                  <th scope="col" className="pts">
-                    Points
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {game.rounds.map((r, i) => (
-                  <tr
-                    key={i}
-                    aria-selected={selected === i}
-                    tabIndex={0}
-                    onClick={() => setSelected((s) => (s === i ? null : i))}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        setSelected((s) => (s === i ? null : i));
-                      }
-                    }}
-                  >
-                    <td className="num">{pad2(i + 1)}</td>
-                    <td>{r.locality}</td>
-                    <td>
-                      {r.stateName}
-                      {r.correctState && <span className="badge" style={{ marginLeft: 8, padding: '2px 6px' }}>✓ state</span>}
-                    </td>
-                    <td>{formatDistance(r.distanceKm)}</td>
-                    <td className="hide-sm">{formatClock(r.timeTakenSec)}</td>
-                    <td className="pts">{formatScore(r.points)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <ol className="rounds" aria-label="Rounds">
+          {game.rounds.map((r, i) => (
+            <li key={i}>
+              <button type="button" className="round-card" aria-pressed={selected === i} onClick={() => select(i)}>
+                <span className="round-card__head">
+                  <Eyebrow>Round {i + 1}</Eyebrow>
+                  {i === best && r.points > 0 && <span className="round-card__best">Best</span>}
+                </span>
+                <span className="round-card__pts">
+                  {formatScore(r.points)} <small>pts</small>
+                </span>
+                <ProgressBar size="sm" value={r.points / MAX_ROUND_SCORE} label={`Round ${i + 1} score`} />
+                <strong className="round-card__place">{r.locality}</strong>
+                <span className="round-card__meta">
+                  {r.stateName}
+                  {r.correctState && ' · correct state'}
+                </span>
+                <span className="round-card__meta">
+                  {r.distanceKm != null ? `${formatDistance(r.distanceKm)} away` : 'No guess'} · {formatClock(r.timeTakenSec)}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ol>
 
-            <div className="action-bar">
-              <ArrowButton variant="ink" onClick={onPlayAgain}>
-                Play again
-              </ArrowButton>
-              <ArrowButton variant="outline" arrow="↗" onClick={onChangeMode}>
-                Change mode / region
-              </ArrowButton>
-              <ArrowButton variant="outline" arrow="↓" onClick={copy}>
-                Copy score card
-              </ArrowButton>
-              <span className="toast" role="status" aria-live="polite">
-                {toast}
-              </span>
-            </div>
-          </div>
-        </section>
+        <div className="summary__actions">
+          <Button size="lg" onClick={onPlayAgain} icon={<PlayIcon />}>
+            Play again
+          </Button>
+          <Button variant="secondary" size="lg" onClick={onChangeMode}>
+            Change map
+          </Button>
+          <Button variant="ghost" size="lg" onClick={copy}>
+            Copy results
+          </Button>
+          <span className="toast" role="status" aria-live="polite">
+            {toast}
+          </span>
+        </div>
       </main>
       <Footer provider={provider} />
     </>

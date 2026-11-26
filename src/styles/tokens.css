@@ -1,32 +1,52 @@
 :root {
-  --paper: #fbfaf7;
-  --ink: #211f25;
-  --ink-hover: #423947;
-  --lilac: #d6c8f2;
-  --lilac-hover: #e9dfff;
-  --lilac-wash: #ede8f3;
-  --dark-surface: #27232d;
-  --dark-rule: #655e6b;
-  --dark-copy: #eeebf0;
-  --dark-muted: #d7d2dc;
-  --muted: #545159;
-  --accent-plum: #675380;
-  --rule: #c9c5c5;
-  --focus-ring: #7353ab;
+  /* Night-sky purples with a glossy green call to action and a yellow score accent. */
+  --night: #10101c;
+  --night-2: #171235;
+  --panel: #211a4c;
+  --panel-2: #2b2363;
+  --panel-3: #393273;
+  --brand: #7950e5;
+  --brand-deep: #4a2399;
+  --brand-darker: #351370;
+  --lav: #a685ff;
+  --lav-2: #bdb5ff;
+  --lav-3: #d9d7f0;
+  --lav-muted: #8f86e6;
+  --green-hi: #97e851;
+  --green: #68c045;
+  --green-lo: #479440;
+  --yellow: #ffc628;
+  --yellow-hi: #ffcf4a;
+  --yellow-lo: #ffa00c;
+  --red: #e94555;
+  --turquoise: #3ae8bd;
   --white: #ffffff;
+  --white-80: rgb(255 255 255 / 80%);
+  --white-60: rgb(255 255 255 / 60%);
+  --white-40: rgb(255 255 255 / 40%);
+  --white-20: rgb(255 255 255 / 20%);
+  --white-10: rgb(255 255 255 / 10%);
+  --white-5: rgb(255 255 255 / 5%);
+  --focus-ring: var(--lav-2);
 
-  --font-display: 'Barlow Condensed', 'Arial Narrow', 'Roboto Condensed', sans-serif;
-  --font-body: 'Manrope', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font: 'Nunito', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
-  --radius: 3px;
-  --chamfer: 28px;
-  --gutter: clamp(22px, 5vw, 84px);
-  --container: 1600px;
+  --radius-xl: 2rem;
+  --radius-lg: 1.25rem;
+  --radius: 0.875rem;
+  --radius-sm: 0.5rem;
+  --radius-pill: 999px;
+
+  /* Soft top highlight + bottom shade that make panels and buttons look moulded. */
+  --bevel: inset 0 0.065rem rgb(255 255 255 / 10%), inset 0 0.15rem 0.125rem rgb(255 255 255 / 10%), inset 0 -0.15rem 0.125rem rgb(0 0 0 / 30%);
+  --bevel-btn: inset 0 0.0625rem 0 var(--white-20), inset 0 -0.125rem 0 rgb(0 0 0 / 30%);
+  --lift: 0 0.275rem 1.125rem rgb(0 0 0 / 25%);
+  --shadow-panel: 0 1rem 2.5rem rgb(0 0 0 / 35%);
+
+  --gutter: clamp(16px, 4vw, 48px);
+  --container: 1200px;
   --ease: cubic-bezier(0.2, 0, 0, 1);
-  --t-fast: 150ms;
+  --ease-out-back: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --t-fast: 120ms;
   --t-med: 220ms;
-
-  --fs-h1: clamp(64px, 9.5vw, 152px);
-  --fs-h2: clamp(42px, 5vw, 84px);
-  --fs-h3: clamp(20px, 1.8vw, 28px);
 }

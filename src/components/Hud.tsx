@@ -1,11 +1,13 @@
 import { ROUNDS_PER_GAME } from '../config';
-import { formatPoints } from '../utils/scoring';
+import { formatScore } from '../utils/scoring';
+import { useCountUp } from './ui';
 
 interface HudProps {
   regionLabel: string;
   round: number;
   score: number;
   timeLeft: number | null;
+  timeTotal: number;
   onExit: () => void;
 }
 
@@ -16,35 +18,42 @@ export function formatClock(sec: number): string {
   return `${Math.floor(s / 60)}:${pad2(s % 60)}`;
 }
 
-export function Hud({ regionLabel, round, score, timeLeft, onExit }: HudProps) {
+export function Hud({ regionLabel, round, score, timeLeft, timeTotal, onExit }: HudProps) {
+  const shown = useCountUp(score, 900);
+  const low = timeLeft != null && timeLeft <= 10;
   return (
-    <div className="hud">
-      <div className="hud__bar" role="status" aria-live="off">
-        <button className="hud__exit" onClick={onExit}>
-          ← Exit
-        </button>
-        <div className="hud__cell hud__region">
-          <span className="eyebrow">{regionLabel}</span>
-        </div>
-        <div className="hud__cell">
-          <span className="eyebrow">Round</span>
-          <span className="hud__num">
-            {pad2(round + 1)} / {pad2(ROUNDS_PER_GAME)}
+    <>
+      <button className="hud-exit" onClick={onExit} aria-label="Leave game" title="Leave game">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {timeLeft != null && timeTotal > 0 && (
+        <div className={`hud-timer${low ? ' hud-timer--low' : ''}`} role="timer" aria-label={`${Math.ceil(timeLeft)} seconds left`}>
+          <span className="hud-timer__clock">{formatClock(timeLeft)}</span>
+          <span className="hud-timer__track" aria-hidden="true">
+            <span className="hud-timer__fill" style={{ width: `${(timeLeft / timeTotal) * 100}%` }} />
           </span>
         </div>
-        <div className="hud__cell">
-          <span className="eyebrow">Score</span>
-          <span className="hud__num">{formatPoints(score)}</span>
+      )}
+
+      <div className="status" role="status" aria-live="off">
+        <div className="status__item status__item--map">
+          <span className="status__label">Map</span>
+          <span className="status__value">{regionLabel}</span>
         </div>
-        {timeLeft != null && (
-          <div className={`hud__cell${timeLeft <= 10 ? ' hud__timer--low' : ''}`}>
-            <span className="eyebrow">Time</span>
-            <span className="hud__num" aria-label={`${Math.ceil(timeLeft)} seconds left`}>
-              {formatClock(timeLeft)}
-            </span>
-          </div>
-        )}
+        <div className="status__item">
+          <span className="status__label">Round</span>
+          <span className="status__value">
+            {round + 1} / {ROUNDS_PER_GAME}
+          </span>
+        </div>
+        <div className="status__item">
+          <span className="status__label">Score</span>
+          <span className="status__value">{formatScore(shown)}</span>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

@@ -5,11 +5,11 @@ import { Hud } from '../components/Hud';
 import { LocatingOverlay } from '../components/LocatingOverlay';
 import { GuessMap } from '../components/Maps';
 import { RoundReveal } from '../components/RoundReveal';
-import { ArrowButton } from '../components/ui';
+import { Button } from '../components/ui';
 import { SceneViewer, type ViewerHandle } from '../components/viewers/SceneViewer';
 import { RoundQueue } from '../engine/gameSession';
-import { pickFromFallbackPool, stepMapillarySequence, type ImageryProvider, type Scene } from '../engine/imageryProviders';
-import { REGION_PACKS } from '../engine/locationGenerator';
+import { pickFromFallbackPool, type ImageryProvider, type Scene } from '../engine/imageryProviders';
+import type { PlayArea } from '../engine/playArea';
 import { resolvePlace, stateOfPoint, type PreparedRound, type RevealedPlace } from '../engine/roundPlanner';
 import type { GameSettings, LatLng, StateCode } from '../engine/types';
 import { haversineKm, scoreForDistance } from '../utils/scoring';
@@ -17,6 +17,7 @@ import { loadRecentAnchors, loadRecentScenes, pushRecentAnchors, pushRecentScene
 
 export interface CompletedGame {
   settings: GameSettings;
+  area: PlayArea;
   providerId: ImageryProvider['id'];
   rounds: RoundRecord[];
   total: number;
@@ -35,6 +36,7 @@ type Phase = 'locating' | 'playing' | 'reveal';
 
 interface GamePageProps {
   settings: GameSettings;
+  area: PlayArea;
   provider: ImageryProvider;
   onExit: () => void;
   onComplete: (game: CompletedGame) => void;
@@ -43,7 +45,7 @@ interface GamePageProps {
 const isTypingTarget = (t: EventTarget | null) =>
   t instanceof HTMLElement && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName));
 
-export function GamePage({ settings, provider, onExit, onComplete }: GamePageProps) {
+export function GamePage({ settings, area, provider, onExit, onComplete }: GamePageProps) {
   const [queue, setQueue] = useState<RoundQueue | null>(null);
   const [index, setIndex] = useState(0);
   const [phase, setPhase] = useState<Phase>('locating');
@@ -57,7 +59,6 @@ export function GamePage({ settings, provider, onExit, onComplete }: GamePagePro
   const [timeLeft, setTimeLeft] = useState<number | null>(settings.timer || null);
   const [records, setRecords] = useState<RoundRecord[]>([]);
   const [reveal, setReveal] = useState<RevealState | null>(null);
-  const [stepping, setStepping] = useState(false);
 
   const viewerRef = useRef<ViewerHandle>(null);
   const startedAt = useRef(0);
@@ -65,17 +66,16 @@ export function GamePage({ settings, provider, onExit, onComplete }: GamePagePro
   const recovered = useRef(false);
   const busy = useRef(false);
 
-  const regionLabel = REGION_PACKS.find((p) => p.id === settings.pack)?.short ?? 'All India';
   const totalScore = records.reduce((s, r) => s + r.points, 0) + (reveal?.points ?? 0);
   const scene = prepared?.scene ?? null;
   const expanded = pinned || hovered;
 
   // Queue lives inside an effect so React StrictMode remounts get a fresh, un-aborted queue.
   useEffect(() => {
-    const q = new RoundQueue(provider, settings.pack, loadRecentAnchors(), loadRecentScenes());
+    const q = new RoundQueue(provider, area, loadRecentAnchors(), loadRecentScenes());
     setQueue(q);
     return () => q.dispose();
-  }, [provider, settings.pack]);
+  }, [provider, area]);
 
   useEffect(() => {
     if (!queue) return;
@@ -106,20 +106,21 @@ export function GamePage({ settings, provider, onExit, onComplete }: GamePagePro
       busy.current = true;
       const actual = prepared.scene;
       const distanceKm = guess ? haversineKm(guess, actual) : null;
-      const points = scoreForDistance(distanceKm);
+      const points = scoreForDistance(distanceKm, area.sizeKm);
       const timeTakenSec = Math.round((performance.now() - startedAt.current) / 1000);
       setPhase('reveal');
       setPinned(false);
       setSheetOpen(false);
       setReveal({ distanceKm, points, timeTakenSec, timedOut, place: null, guessState: undefined });
       prepared.place.then((place) => setReveal((r) => (r ? { ...r, place } : r)));
-      if (guess) {
+      // Inside a single state or city every pin is in the "right state", so the badge only means something India-wide.
+      if (guess && area.scope === 'india') {
         stateOfPoint(guess, provider.id === 'google').then((guessState) => setReveal((r) => (r ? { ...r, guessState } : r)));
       } else {
         setReveal((r) => (r ? { ...r, guessState: null } : r));
       }
     },
-    [phase, prepared, guess, provider.id],
+    [phase, prepared, guess, provider.id, area],
   );
 
   const next = useCallback(() => {
@@ -144,7 +145,7 @@ export function GamePage({ settings, provider, onExit, onComplete }: GamePagePro
     if (index + 1 >= ROUNDS_PER_GAME) {
       if (queue) pushRecentAnchors(queue.anchorIds);
       pushRecentScenes(usedScenes.current);
-      onComplete({ settings, providerId: provider.id, rounds: all, total: all.reduce((s, r) => s + r.points, 0) });
+      onComplete({ settings, area, providerId: provider.id, rounds: all, total: all.reduce((s, r) => s + r.points, 0) });
       return;
     }
     setRecords(all);
@@ -153,7 +154,7 @@ export function GamePage({ settings, provider, onExit, onComplete }: GamePagePro
     setPrepared(null);
     setHeading(null);
     setIndex((i) => i + 1);
-  }, [phase, reveal, prepared, index, guess, records, queue, onComplete, settings, provider.id]);
+  }, [phase, reveal, prepared, index, guess, records, queue, onComplete, settings, area, provider.id]);
 
   // Round timer: auto-submit with the current pin (or 0 points if none).
   const submitRef = useRef(submit);
@@ -217,21 +218,17 @@ export function GamePage({ settings, provider, onExit, onComplete }: GamePagePro
     if (!prepared || recovered.current) return;
     recovered.current = true;
     const previous = records.map((r) => r.actual);
-    const fallback = pickFromFallbackPool(settings.pack, { previous, excludeIds: new Set([...usedScenes.current, prepared.scene.id]) });
+    const fallback = pickFromFallbackPool(area.pack, {
+      previous,
+      excludeIds: new Set([...usedScenes.current, prepared.scene.id]),
+      minSeparationKm: area.minSeparationKm,
+      prefer: area.contains,
+    });
     const round: PreparedRound = { ...prepared, scene: fallback, candidate: null, verdict: null, usedFallback: true, place: resolvePlace(fallback, null, null) };
     setPrepared(round);
     setViewScene(fallback);
-  }, [prepared, records, settings.pack]);
+  }, [prepared, records, area]);
 
-  const step = async (dir: 1 | -1) => {
-    if (!viewScene || stepping) return;
-    setStepping(true);
-    const nextScene = await stepMapillarySequence(viewScene, dir).catch(() => null);
-    setStepping(false);
-    if (nextScene) setViewScene(nextScene);
-  };
-
-  const canStep = provider.id === 'mapillary' && settings.ruleset === 'standard' && !!viewScene?.sequenceId;
   const onHeading = useCallback((h: number | null) => setHeading(h), []);
   const onReady = useCallback(() => undefined, []);
 
@@ -249,31 +246,23 @@ export function GamePage({ settings, provider, onExit, onComplete }: GamePagePro
         />
       )}
 
-      <Hud regionLabel={regionLabel} round={index} score={totalScore} timeLeft={phase === 'playing' ? timeLeft : null} onExit={onExit} />
+      <Hud regionLabel={area.label} round={index} score={totalScore} timeLeft={phase === 'playing' ? timeLeft : null} timeTotal={settings.timer} onExit={onExit} />
 
       {phase === 'playing' && scene && (
         <>
           <div className="controls" aria-label="View controls">
-            {canStep && (
-              <div className="ctrl-row">
-                <button className="ctrl" onClick={() => step(-1)} disabled={stepping} aria-label="Step back along the road">
-                  ‹
-                </button>
-                <button className="ctrl" onClick={() => step(1)} disabled={stepping} aria-label="Step forward along the road">
-                  ›
-                </button>
-              </div>
-            )}
             <button
-              className="ctrl ctrl--wide"
+              className="ctrl"
               onClick={() => {
                 viewerRef.current?.resetView();
                 setViewScene(scene);
               }}
-              aria-label="Reset view (R)"
-              title="Reset view (R)"
+              aria-label="Back to start (R)"
+              title="Back to start (R)"
             >
-              ↺ <span>R</span>
+              <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M3 8a5 5 0 1 0 1.6-3.7M3 2.5v3h3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </button>
             {settings.ruleset !== 'nmpz' && (
               <div className="ctrl-row">
@@ -289,40 +278,43 @@ export function GamePage({ settings, provider, onExit, onComplete }: GamePagePro
           </div>
 
           <div
-            className={`guess${expanded ? ' guess--expanded' : ''}${sheetOpen ? ' guess--sheet-open' : ''}`}
+            className={`guess${expanded ? ' guess--expanded' : ''}${sheetOpen ? ' guess--sheet-open' : ''}${guess ? ' guess--has-pin' : ''}`}
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
           >
-            <div className="guess__card">
-              <div className="guess__toolbar">
-                <span className="eyebrow">{guess ? 'Pin placed' : 'Click to place your pin'}</span>
-                <button className="guess__toggle" onClick={() => setPinned((p) => !p)} aria-pressed={pinned} title="Expand map (M)">
-                  {pinned ? 'Unpin ↘' : 'Expand ↖'} <span className="muted">M</span>
-                </button>
-              </div>
-              <div className="guess__map">
-                <GuessMap guess={guess} onGuess={setGuess} sizeToken={`${expanded}-${sheetOpen}`} />
-              </div>
+            <div className="guess__tools">
+              <button className="guess__tool" onClick={() => setPinned((p) => !p)} aria-pressed={pinned} title={pinned ? 'Unpin map size (M)' : 'Keep the map large (M)'}>
+                <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+                  {pinned ? (
+                    <path d="M6 2v4H2M10 14v-4h4M6 6 2 2M10 10l4 4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  ) : (
+                    <path d="M2 6V2h4M14 10v4h-4M2 2l4.5 4.5M14 14l-4.5-4.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  )}
+                </svg>
+                <span>{pinned ? 'Shrink' : 'Enlarge'}</span>
+                <kbd>M</kbd>
+              </button>
+            </div>
+            <div className="guess__map">
+              <GuessMap area={area} guess={guess} onGuess={setGuess} sizeToken={`${expanded}-${sheetOpen}`} compact={!expanded && !sheetOpen} />
             </div>
             <div className="guess__buttons">
-              <button className="btn btn--outline guess__sheet-toggle" onClick={() => setSheetOpen((o) => !o)} aria-expanded={sheetOpen}>
-                <span>{sheetOpen ? 'Hide map' : 'Map'}</span>
-                <span className="arrow" aria-hidden="true">
-                  {sheetOpen ? '↓' : '↑'}
-                </span>
-              </button>
-              <ArrowButton variant="ink" block disabled={!guess} onClick={() => submit()}>
-                Lock in guess
-              </ArrowButton>
+              <Button variant="secondary" size="lg" className="guess__sheet-toggle" onClick={() => setSheetOpen((o) => !o)} aria-expanded={sheetOpen}>
+                {sheetOpen ? 'Hide map' : 'Map'}
+              </Button>
+              <Button size="lg" block disabled={!guess} onClick={() => submit()} className="guess__go">
+                {guess ? 'Guess' : 'Place your pin on the map'}
+              </Button>
             </div>
           </div>
         </>
       )}
 
-      {phase === 'locating' && <LocatingOverlay round={index} providerLabel={provider.label} />}
+      {phase === 'locating' && <LocatingOverlay round={index} areaLabel={area.label} />}
 
       {phase === 'reveal' && prepared && reveal && (
         <RoundReveal
+          area={area}
           round={index}
           scene={prepared.scene}
           guess={guess}

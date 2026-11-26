@@ -13,14 +13,36 @@ export function haversineKm(a: LatLng, b: LatLng): number {
   return 2 * EARTH_RADIUS_KM * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-export const PERFECT_THRESHOLD_KM = 0.15;
-export const SCORE_DECAY_KM = 650;
+export interface Bounds {
+  south: number;
+  west: number;
+  north: number;
+  east: number;
+}
 
-/** India-calibrated score curve: 5,000 within 150 m, then exponential decay. */
-export function scoreForDistance(distanceKm: number | null | undefined): number {
+export const INDIA_BOUNDS: Bounds = { south: 6.5, west: 68, north: 36, east: 97.5 };
+
+export function boundsDiagonalKm(b: Bounds): number {
+  return haversineKm({ lat: b.south, lng: b.west }, { lat: b.north, lng: b.east });
+}
+
+/** ≈ 4,450 km — the All India map size. */
+export const INDIA_SIZE_KM = boundsDiagonalKm(INDIA_BOUNDS);
+
+/** A guess within 0.025% of the map size (1.1 km across India, 25 m minimum) scores full marks. */
+export function perfectRadiusKm(sizeKm: number): number {
+  return Math.max(0.025, sizeKm * 0.00025);
+}
+
+/**
+ * Map-size-relative score: 5000 · e^(−10 · d / size), the same shape GeoGuessr uses.
+ * Missing by 10% of the play area's diagonal leaves ~1,840 pts, whether that's
+ * 445 km across India, 60 km in Kerala or 3.7 km in Bengaluru.
+ */
+export function scoreForDistance(distanceKm: number | null | undefined, sizeKm = INDIA_SIZE_KM): number {
   if (distanceKm == null || !Number.isFinite(distanceKm) || distanceKm < 0) return 0;
-  if (distanceKm <= PERFECT_THRESHOLD_KM) return MAX_ROUND_SCORE;
-  const raw = Math.round(MAX_ROUND_SCORE * Math.exp(-distanceKm / SCORE_DECAY_KM));
+  if (distanceKm <= perfectRadiusKm(sizeKm)) return MAX_ROUND_SCORE;
+  const raw = Math.round(MAX_ROUND_SCORE * Math.exp((-10 * distanceKm) / sizeKm));
   return Math.min(MAX_ROUND_SCORE, Math.max(0, raw));
 }
 
@@ -47,12 +69,12 @@ export interface RankTier {
 }
 
 export const RANK_TIERS: RankTier[] = [
-  { min: 23500, title: 'Subcontinent Cartographer' },
-  { min: 20000, title: 'Highway Veteran' },
-  { min: 15000, title: 'Local Navigator' },
-  { min: 10000, title: 'Weekend Wanderer' },
-  { min: 5000, title: 'Curious Traveller' },
-  { min: 0, title: 'First-Time Explorer' },
+  { min: 23500, title: 'Human GPS' },
+  { min: 20000, title: 'Bharat Darshan Pro' },
+  { min: 15000, title: 'Highway Dhaba Regular' },
+  { min: 10000, title: 'Auto-wala in Training' },
+  { min: 5000, title: 'Weekend Wanderer' },
+  { min: 0, title: 'Lost Tourist' },
 ];
 
 export function rankForScore(total: number): string {

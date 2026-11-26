@@ -9,8 +9,16 @@ declare global {
   }
 }
 
+const authListeners = new Set<() => void>();
+
 export function googleAuthFailed(): boolean {
   return authFailed;
+}
+
+/** Google reports a bad/restricted key after load too; maps subscribe so they can fall back. */
+export function onGoogleAuthFailure(cb: () => void): () => void {
+  authListeners.add(cb);
+  return () => authListeners.delete(cb);
 }
 
 export function loadGoogleMaps(apiKey: string, timeoutMs = 10000): Promise<void> {
@@ -27,9 +35,11 @@ export function loadGoogleMaps(apiKey: string, timeoutMs = 10000): Promise<void>
       authFailed = true;
       clearTimeout(timer);
       reject(new Error('Google Maps authentication failed'));
+      authListeners.forEach((cb) => cb());
     };
     const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&loading=async&callback=__gullyGuessrGmapsInit`;
+    // region=IN renders borders as shown inside India.
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&loading=async&region=IN&language=en&callback=__gullyGuessrGmapsInit`;
     script.async = true;
     script.onerror = () => {
       clearTimeout(timer);
@@ -41,6 +51,10 @@ export function loadGoogleMaps(apiKey: string, timeoutMs = 10000): Promise<void>
     throw err;
   });
   return loading;
+}
+
+export async function mapsLibrary(): Promise<google.maps.MapsLibrary> {
+  return (await google.maps.importLibrary('maps')) as google.maps.MapsLibrary;
 }
 
 export async function streetViewLibrary(): Promise<google.maps.StreetViewLibrary> {

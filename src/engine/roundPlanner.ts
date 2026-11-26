@@ -1,13 +1,13 @@
-import { LOCATE_BATCH_SIZE, LOCATE_MAX_ATTEMPTS, MIN_ROUND_SEPARATION_KM } from '../config';
+import { LOCATE_BATCH_SIZE, LOCATE_MAX_ATTEMPTS, STREET_VIEW_MAX_ATTEMPTS } from '../config';
 import { INDIA_STATES } from '../data/indiaStateClues';
 import { haversineKm } from '../utils/scoring';
 import { isInOrNearIndia } from './geo';
 import { checkIdentifiability, type IdentifiabilityVerdict } from './identifiabilityFilter';
 import { openProvider, pickFromFallbackPool, type ImageryProvider, type Scene } from './imageryProviders';
-import { generateCandidate } from './locationGenerator';
+import type { PlayArea } from './playArea';
 import { defaultRng, type Rng } from './random';
 import { reverseGeocode } from './reverseGeocode';
-import type { Archetype, LatLng, LocationCandidate, RegionPack, StateCode } from './types';
+import type { Archetype, LatLng, LocationCandidate, StateCode } from './types';
 
 export interface RevealedPlace {
   locality: string;
@@ -30,7 +30,7 @@ export interface PreparedRound {
 
 export interface PrepareOptions {
   provider: ImageryProvider;
-  pack: RegionPack;
+  area: PlayArea;
   previous: readonly LatLng[];
   recentAnchorIds?: readonly string[];
   excludeSceneIds?: ReadonlySet<string>;
@@ -79,10 +79,11 @@ export async function resolvePlace(scene: Scene, candidate: LocationCandidate | 
 
 async function tryCandidate(candidate: LocationCandidate, opts: PrepareOptions, provider: ImageryProvider): Promise<Attempt | null> {
   try {
-    const scene = await provider.findScene(candidate, { signal: opts.signal, rng: opts.rng, excludeIds: opts.excludeSceneIds });
+    const { area } = opts;
+    const scene = await provider.findScene(candidate, { signal: opts.signal, rng: opts.rng, excludeIds: opts.excludeSceneIds, searchKm: area.searchKm });
     if (!scene || opts.signal?.aborted) return null;
-    if (!isInOrNearIndia(scene)) return null;
-    if (!opts.previous.every((p) => haversineKm(p, scene) >= MIN_ROUND_SEPARATION_KM)) return null;
+    if (!area.contains(scene)) return null;
+    if (!opts.previous.every((p) => haversineKm(p, scene) >= area.minSeparationKm)) return null;
     const verdict = await (opts.identify ?? checkIdentifiability)(scene, candidate.archetype, { signal: opts.signal });
     if (!verdict.accept) return null;
     return { candidate, scene, verdict };
@@ -97,7 +98,7 @@ async function tryCandidate(candidate: LocationCandidate, opts: PrepareOptions, 
  */
 export async function prepareRound(opts: PrepareOptions): Promise<PreparedRound> {
   const rng = opts.rng ?? defaultRng;
-  const maxAttempts = opts.maxAttempts ?? LOCATE_MAX_ATTEMPTS;
+  const maxAttempts = opts.maxAttempts ?? (opts.provider.supportsMovement ? STREET_VIEW_MAX_ATTEMPTS : LOCATE_MAX_ATTEMPTS);
   const batchSize = opts.batchSize ?? LOCATE_BATCH_SIZE;
   const queued: LatLng[] = [...opts.previous];
   let attempts = 0;
@@ -109,7 +110,7 @@ export async function prepareRound(opts: PrepareOptions): Promise<PreparedRound>
       const n = Math.min(batchSize, budget - used);
       const batch: LocationCandidate[] = [];
       for (let i = 0; i < n; i++) {
-        const c = generateCandidate({ pack: opts.pack, rng, previous: queued, recentAnchorIds: opts.recentAnchorIds });
+        const c = opts.area.generate({ rng, previous: queued, recentAnchorIds: opts.recentAnchorIds });
         firstArchetype ??= c.archetype;
         batch.push(c);
       }
@@ -136,7 +137,13 @@ export async function prepareRound(opts: PrepareOptions): Promise<PreparedRound>
     };
   }
 
-  const scene = pickFromFallbackPool(opts.pack, { previous: opts.previous, excludeIds: opts.excludeSceneIds, rng });
+  const scene = pickFromFallbackPool(opts.area.pack, {
+    previous: opts.previous,
+    excludeIds: opts.excludeSceneIds,
+    rng,
+    minSeparationKm: opts.area.minSeparationKm,
+    prefer: opts.area.contains,
+  });
   return {
     candidate: null,
     archetype: firstArchetype ?? 'urban_town',

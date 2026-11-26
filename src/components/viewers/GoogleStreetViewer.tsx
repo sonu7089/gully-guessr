@@ -2,6 +2,28 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { streetViewLibrary } from '../../engine/googleMaps';
 import type { ViewerHandle, ViewerProps } from './types';
 
+/** Links Google injects into the panorama that open Maps at the current coordinates. */
+const LOCATION_LINK_RE = /[?&](cbll|ll|q|viewpoint|pano|panoid)=|output=report|\/cbk\b|\/maps\/@|\/maps\?|maps\.google\./i;
+
+/**
+ * Google's logo and "Report a problem" link point at the panorama's location.
+ * Keep the logo visible but make every link inert, and drop text-only
+ * location links (the report link) since they are useless without the href.
+ */
+function scrubLocationLinks(root: HTMLElement): void {
+  root.querySelectorAll<HTMLAnchorElement>('a[href]').forEach((a) => {
+    if (LOCATION_LINK_RE.test(a.href) && !a.querySelector('img')) a.style.display = 'none';
+    a.removeAttribute('href');
+    a.tabIndex = -1;
+  });
+  // Navigation arrows are labelled "Go West, <road name>" even with road labels hidden.
+  root.querySelectorAll<Element>('[aria-label^="Go "]').forEach((el) => {
+    const label = el.getAttribute('aria-label')!;
+    const comma = label.indexOf(',');
+    if (comma > 0) el.setAttribute('aria-label', label.slice(0, comma));
+  });
+}
+
 /** Live Google Street View with labels/addresses hidden and ruleset-driven controls. */
 export const GoogleStreetViewer = forwardRef<ViewerHandle, ViewerProps>(function GoogleStreetViewer({ scene, ruleset, onHeading, onReady, onError }, ref) {
   const container = useRef<HTMLDivElement>(null);
@@ -11,14 +33,18 @@ export const GoogleStreetViewer = forwardRef<ViewerHandle, ViewerProps>(function
 
   useEffect(() => {
     let cancelled = false;
+    let ready = false;
     const listeners: google.maps.MapsEventListener[] = [];
+    const root = container.current;
+    const observer = root ? new MutationObserver(() => scrubLocationLinks(root)) : null;
+    if (root) observer?.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['href', 'aria-label'] });
     (async () => {
       try {
         const { StreetViewPanorama, StreetViewStatus } = await streetViewLibrary();
-        if (cancelled || !container.current) return;
+        if (cancelled || !root) return;
         const moving = ruleset === 'standard';
         const locked = ruleset === 'nmpz';
-        const p = new StreetViewPanorama(container.current, {
+        const p = new StreetViewPanorama(root, {
           pano: scene.panoId,
           pov: { heading: scene.heading ?? 0, pitch: 0 },
           zoom: 0,
@@ -39,10 +65,20 @@ export const GoogleStreetViewer = forwardRef<ViewerHandle, ViewerProps>(function
         });
         pano.current = p;
         listeners.push(p.addListener('pov_changed', () => callbacks.current.onHeading(p.getPov().heading)));
+        if (!moving && scene.panoId) {
+          // Hiding the arrows doesn't stop keyboard movement, so pin the pano for No Move / NMPZ.
+          const startPano = scene.panoId;
+          listeners.push(p.addListener('pano_changed', () => p.getPano() !== startPano && p.setPano(startPano)));
+        }
         listeners.push(
           p.addListener('status_changed', () => {
-            if (p.getStatus() === StreetViewStatus.OK) callbacks.current.onReady();
-            else callbacks.current.onError();
+            if (p.getStatus() === StreetViewStatus.OK) {
+              ready = true;
+              callbacks.current.onReady();
+            } else if (!ready) {
+              // A broken link mid-walk must not swap the round; only the starting pano can fail it.
+              callbacks.current.onError();
+            }
           }),
         );
         callbacks.current.onHeading(scene.heading);
@@ -52,6 +88,7 @@ export const GoogleStreetViewer = forwardRef<ViewerHandle, ViewerProps>(function
     })();
     return () => {
       cancelled = true;
+      observer?.disconnect();
       listeners.forEach((l) => l.remove());
       pano.current?.setVisible(false);
       pano.current = null;

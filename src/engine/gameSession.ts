@@ -1,7 +1,8 @@
 import { ROUNDS_PER_GAME } from '../config';
 import type { ImageryProvider } from './imageryProviders';
+import type { PlayArea } from './playArea';
 import { prepareRound, type PreparedRound } from './roundPlanner';
-import type { LatLng, RegionPack } from './types';
+import type { LatLng } from './types';
 
 /**
  * Sequential, prefetching round queue. Round N+1 is prepared in the background
@@ -16,7 +17,7 @@ export class RoundQueue {
 
   constructor(
     private readonly provider: ImageryProvider,
-    private readonly pack: RegionPack,
+    private readonly area: PlayArea,
     private readonly recentAnchorIds: readonly string[] = [],
     recentSceneIds: readonly string[] = [],
     private readonly total = ROUNDS_PER_GAME,
@@ -30,7 +31,7 @@ export class RoundQueue {
       this.rounds[k] = previous.then(async () => {
         const round = await prepareRound({
           provider: this.provider,
-          pack: this.pack,
+          area: this.area,
           previous: [...this.locations],
           recentAnchorIds: [...this.recentAnchorIds, ...this.anchorIds],
           excludeSceneIds: this.sceneIds,

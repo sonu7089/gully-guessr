@@ -19,14 +19,13 @@ export interface SceneAttribution {
 
 export interface Scene extends LatLng {
   provider: ProviderId;
-  /** google = live Street View, equirect = 360° image, photo = flat photograph. */
-  kind: 'google' | 'equirect' | 'photo';
+  /** google / mapillary = navigable street-level viewer, equirect = static 360° image, photo = flat photograph. */
+  kind: 'google' | 'mapillary' | 'equirect' | 'photo';
   /** Stable id used to avoid repeats (pano id, Mapillary id, Commons title). */
   id: string;
   heading: number | null;
   panoId?: string;
   imageUrl?: string;
-  sequenceId?: string;
   attribution?: SceneAttribution;
   /** Known place metadata (fallback pool) used when reverse geocoding fails. */
   knownPlace?: { name: string; state: StateCode };
@@ -36,7 +35,11 @@ export interface FindContext {
   signal?: AbortSignal;
   rng?: Rng;
   excludeIds?: ReadonlySet<string>;
+  /** How far from the candidate imagery may be (km); the radii below are tuned for the default 3. */
+  searchKm?: number;
 }
+
+const searchScale = (ctx: FindContext) => (ctx.searchKm ?? 3) / 3;
 
 export interface ImageryProvider {
   id: ProviderId;
@@ -78,7 +81,7 @@ export const googleProvider: ImageryProvider = {
     await loadGoogleMaps(GOOGLE_KEY);
     const { StreetViewService, StreetViewSource, StreetViewPreference } = await streetViewLibrary();
     const service = new StreetViewService();
-    for (const radius of GOOGLE_RADII_M) {
+    for (const radius of GOOGLE_RADII_M.map((r) => Math.round(r * searchScale(ctx)))) {
       if (ctx.signal?.aborted) return null;
       try {
         const { data } = await service.getPanorama({
@@ -149,10 +152,9 @@ function mapillaryScene(img: MapillaryImage): Scene | null {
     lat: coords[1],
     lng: coords[0],
     provider: 'mapillary',
-    kind: 'equirect',
+    kind: 'mapillary',
     id: img.id,
     imageUrl: img.thumb_2048_url,
-    sequenceId: img.sequence,
     heading: typeof heading === 'number' ? heading : null,
     attribution: {
       source: 'Mapillary',
@@ -166,10 +168,10 @@ function mapillaryScene(img: MapillaryImage): Scene | null {
 export const mapillaryProvider: ImageryProvider = {
   id: 'mapillary',
   label: PROVIDER_LABELS.mapillary,
-  description: 'Free crowd-sourced 360° panoramas with sequence stepping.',
+  description: 'Free crowd-sourced 360° street-level imagery with full street navigation.',
   supportsMovement: true,
   async findScene(candidate, ctx = {}) {
-    for (const half of MAPILLARY_BBOX_HALF_DEG) {
+    for (const half of MAPILLARY_BBOX_HALF_DEG.map((h) => h * searchScale(ctx))) {
       if (ctx.signal?.aborted) return null;
       const bbox = [candidate.lng - half, candidate.lat - half, candidate.lng + half, candidate.lat + half].map((v) => v.toFixed(5)).join(',');
       const url = `https://graph.mapillary.com/images?access_token=${encodeURIComponent(MAPILLARY_TOKEN)}&fields=${MAPILLARY_FIELDS}&bbox=${bbox}&is_pano=true&limit=40`;
@@ -186,28 +188,6 @@ export const mapillaryProvider: ImageryProvider = {
     return null;
   },
 };
-
-const sequenceCache = new Map<string, string[]>();
-
-/** Step along the Mapillary capture sequence (Standard ruleset only). */
-export async function stepMapillarySequence(scene: Scene, direction: 1 | -1): Promise<Scene | null> {
-  if (!scene.sequenceId || !MAPILLARY_TOKEN) return null;
-  let ids = sequenceCache.get(scene.sequenceId);
-  if (!ids) {
-    const json = await mapillaryJson<{ data?: { id: string }[] }>(
-      `https://graph.mapillary.com/image_ids?access_token=${encodeURIComponent(MAPILLARY_TOKEN)}&sequence_id=${scene.sequenceId}`,
-    );
-    ids = (json?.data ?? []).map((d) => d.id);
-    sequenceCache.set(scene.sequenceId, ids);
-  }
-  const idx = ids.indexOf(scene.id);
-  const nextId = idx >= 0 ? ids[idx + direction] : undefined;
-  if (!nextId) return null;
-  const img = await mapillaryJson<MapillaryImage>(
-    `https://graph.mapillary.com/${nextId}?access_token=${encodeURIComponent(MAPILLARY_TOKEN)}&fields=${MAPILLARY_FIELDS}`,
-  );
-  return img ? mapillaryScene(img) : null;
-}
 
 /* ------------------------------------------------------------------ */
 /* Tier 3 — Open Mode (Wikimedia Commons, zero keys)                   */
@@ -366,7 +346,7 @@ export const openProvider: ImageryProvider = {
   supportsMovement: false,
   async findScene(candidate, ctx = {}) {
     const rng = ctx.rng ?? defaultRng;
-    for (const radiusKm of [8, 20]) {
+    for (const radiusKm of [8, 20].map((r) => Math.max(1, Math.round(r * searchScale(ctx))))) {
       if (ctx.signal?.aborted || commonsThrottled()) return null;
       const keyword = pickOne(OPEN_KEYWORDS[candidate.archetype], rng);
       const pages = await commonsSearch(keyword, candidate, radiusKm, ctx.signal);
@@ -411,9 +391,15 @@ export function poolImageToScene(p: PoolImage): Scene {
 /** Verified local pool — the last line of defence so a round always loads. */
 export function pickFromFallbackPool(
   pack: RegionPack,
-  { previous = [], excludeIds, rng = defaultRng, minSeparationKm = 35 }: { previous?: readonly LatLng[]; excludeIds?: ReadonlySet<string>; rng?: Rng; minSeparationKm?: number } = {},
+  {
+    previous = [],
+    excludeIds,
+    rng = defaultRng,
+    minSeparationKm = 35,
+    prefer,
+  }: { previous?: readonly LatLng[]; excludeIds?: ReadonlySet<string>; rng?: Rng; minSeparationKm?: number; prefer?: (p: LatLng) => boolean } = {},
 ): Scene {
-  const tiers = [poolForPack(pack), FALLBACK_POOL];
+  const tiers = [prefer ? FALLBACK_POOL.filter(prefer) : [], poolForPack(pack), FALLBACK_POOL];
   for (const tier of tiers) {
     const fresh = tier.filter((p) => !excludeIds?.has(p.title));
     const separated = fresh.filter((p) => previous.every((q) => haversineKm(p, q) >= minSeparationKm));

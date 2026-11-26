@@ -1,19 +1,32 @@
 import { useCallback, useEffect, useState } from 'react';
 import { GAME_TITLE } from './config';
-import { configuredProviderId, getProvider, resolveActiveProvider, type ImageryProvider } from './engine/imageryProviders';
+import { activeProvider } from './engine/activeProvider';
+import { configuredProviderId, getProvider, type ImageryProvider } from './engine/imageryProviders';
+import { resolvePlayArea, type PlayArea } from './engine/playArea';
 import type { GameSettings } from './engine/types';
+import { wasInRoom } from './multiplayer/MultiplayerProvider';
+import { CODE_LENGTH, normalizeCode } from './multiplayer/protocol';
 import { GamePage, type CompletedGame } from './pages/GamePage';
 import { LandingPage } from './pages/LandingPage';
+import { MultiplayerPage } from './pages/MultiplayerPage';
 import { SummaryPage } from './pages/SummaryPage';
 import { DEFAULT_SETTINGS, loadMatches, loadSettings, loadStats, recordMatch, resetStats, saveSettings } from './utils/storage';
 
-type Screen = { name: 'landing'; scrollTo?: string } | { name: 'game'; settings: GameSettings; key: number } | { name: 'summary'; game: CompletedGame; isNewBest: boolean };
+type Screen =
+  | { name: 'landing'; scrollTo?: string }
+  | { name: 'multiplayer' }
+  | { name: 'game'; settings: GameSettings; area: PlayArea; key: number }
+  | { name: 'summary'; game: CompletedGame; isNewBest: boolean };
 
-let providerPromise: Promise<ImageryProvider> | null = null;
-const activeProvider = () => (providerPromise ??= resolveActiveProvider());
+/** `?room=ABCDE` invite links open multiplayer and join that room. */
+function readInvite(): string | null {
+  const code = normalizeCode(new URLSearchParams(location.search).get('room') ?? '');
+  return code.length === CODE_LENGTH ? code : null;
+}
 
 export default function App() {
-  const [screen, setScreen] = useState<Screen>({ name: 'landing' });
+  const [invite, setInvite] = useState(readInvite);
+  const [screen, setScreen] = useState<Screen>(() => (invite || wasInRoom() ? { name: 'multiplayer' } : { name: 'landing' }));
   const [settings, setSettings] = useState<GameSettings>(() => loadSettings());
   const [stats, setStats] = useState(() => loadStats());
   const [matches, setMatches] = useState(() => loadMatches());
@@ -28,22 +41,33 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    document.title = screen.name === 'game' ? `Playing · ${GAME_TITLE}` : GAME_TITLE;
+    document.title = screen.name === 'game' ? `Playing · ${GAME_TITLE}` : screen.name === 'multiplayer' ? `Multiplayer · ${GAME_TITLE}` : GAME_TITLE;
     if (screen.name === 'landing') {
       const id = screen.scrollTo;
       requestAnimationFrame(() => (id ? document.getElementById(id)?.scrollIntoView() : window.scrollTo({ top: 0 })));
+    } else if (screen.name === 'multiplayer') {
+      window.scrollTo({ top: 0 });
     }
   }, [screen]);
+
+  const clearInvite = useCallback(() => {
+    setInvite(null);
+    const url = new URL(location.href);
+    url.searchParams.delete('room');
+    history.replaceState(null, '', url);
+  }, []);
 
   const start = useCallback(async (s: GameSettings) => {
     saveSettings(s);
     setSettings(s);
-    const p = await activeProvider();
+    const [p, area] = await Promise.all([activeProvider(), resolvePlayArea(s)]);
     setProvider(p);
-    setScreen({ name: 'game', settings: s, key: Date.now() });
+    setScreen({ name: 'game', settings: s, area, key: Date.now() });
   }, []);
 
-  const quickPlay = useCallback(() => start({ ...DEFAULT_SETTINGS, pack: 'all', ruleset: 'standard', timer: 0 }), [start]);
+  const quickPlay = useCallback(() => start({ ...DEFAULT_SETTINGS, scope: 'india', pack: 'all', ruleset: 'standard', timer: 0 }), [start]);
+  const home = useCallback(() => setScreen({ name: 'landing' }), []);
+  const multiplayer = useCallback(() => setScreen({ name: 'multiplayer' }), []);
 
   const complete = useCallback((game: CompletedGame) => {
     const { stats: next, isNewBest } = recordMatch({
@@ -59,7 +83,11 @@ export default function App() {
   }, []);
 
   if (screen.name === 'game') {
-    return <GamePage key={screen.key} settings={screen.settings} provider={provider} onExit={() => setScreen({ name: 'landing' })} onComplete={complete} />;
+    return <GamePage key={screen.key} settings={screen.settings} area={screen.area} provider={provider} onExit={home} onComplete={complete} />;
+  }
+
+  if (screen.name === 'multiplayer') {
+    return <MultiplayerPage settings={settings} provider={provider} inviteCode={invite} onInviteHandled={clearInvite} onHome={home} onSinglePlayer={quickPlay} />;
   }
 
   if (screen.name === 'summary') {
@@ -69,8 +97,8 @@ export default function App() {
         isNewBest={screen.isNewBest}
         provider={provider.id}
         onPlayAgain={() => start(screen.game.settings)}
-        onChangeMode={() => setScreen({ name: 'landing', scrollTo: 'regions' })}
-        onHome={() => setScreen({ name: 'landing' })}
+        onChangeMode={() => setScreen({ name: 'landing', scrollTo: 'maps' })}
+        onHome={home}
       />
     );
   }
@@ -84,6 +112,7 @@ export default function App() {
       }}
       onStart={start}
       onQuickPlay={quickPlay}
+      onMultiplayer={multiplayer}
       stats={stats}
       matches={matches}
       onResetStats={() => {

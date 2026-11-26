@@ -1,27 +1,41 @@
 import { GAME_TITLE } from '../config';
-import { PinMark } from './ui';
+import { Button, Logo, PlayIcon, Wordmark } from './ui';
+import { UserMenu } from './UserMenu';
 
 interface HeaderProps {
-  onPlayNow: () => void;
+  onPlayNow?: () => void;
   onHome?: () => void;
+  onMultiplayer?: () => void;
+  /** Section links only make sense on the landing page. */
+  sections?: boolean;
 }
 
-export function Header({ onPlayNow, onHome }: HeaderProps) {
+export function Header({ onPlayNow, onHome, onMultiplayer, sections = true }: HeaderProps) {
   return (
     <header className="site-header">
       <div className="container site-header__inner">
         <button className="wordmark" onClick={onHome} aria-label={`${GAME_TITLE} home`}>
-          <PinMark />
-          <span>{GAME_TITLE}</span>
+          <Logo />
+          <Wordmark />
         </button>
         <nav className="site-nav" aria-label="Primary">
-          <a href="#how">How it works</a>
-          <a href="#regions">Regions</a>
-          <a href="#stats">Stats</a>
-          <button className="btn btn--outline" onClick={onPlayNow}>
-            <span>Play now</span>
-            <span className="arrow" aria-hidden="true">↗</span>
-          </button>
+          {sections && (
+            <>
+              <a href="#maps">Maps</a>
+              <a href="#how">How to play</a>
+            </>
+          )}
+          {onMultiplayer && (
+            <button type="button" className="site-nav__link site-nav__mp" onClick={onMultiplayer}>
+              Multiplayer
+            </button>
+          )}
+          {onPlayNow && (
+            <Button size="sm" onClick={onPlayNow} icon={<PlayIcon />} className="site-nav__play">
+              Play
+            </Button>
+          )}
+          <UserMenu />
         </nav>
       </div>
     </header>

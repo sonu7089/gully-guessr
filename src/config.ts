@@ -10,6 +10,8 @@ export const MIN_ROUND_SEPARATION_KM = 35;
 
 /** Locating pipeline: total attempts and how many run concurrently per batch. */
 export const LOCATE_MAX_ATTEMPTS = 8;
+/** Navigable providers get a bigger budget so rounds rarely degrade to a flat photo. */
+export const STREET_VIEW_MAX_ATTEMPTS = 14;
 export const LOCATE_BATCH_SIZE = 2;
 
 export const OVERPASS_TIMEOUT_MS = 1500;

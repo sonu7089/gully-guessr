@@ -37,8 +37,17 @@ export interface LocationCandidate extends LatLng {
   archetype: Archetype;
 }
 
+/** How wide the play area is: the whole country, one state/UT, or one city. */
+export type GameScope = 'india' | 'state' | 'city';
+
 export interface GameSettings {
+  scope: GameScope;
+  /** Region pack, used by the India scope. */
   pack: RegionPack;
+  /** State/UT, used by the state scope. */
+  state: StateCode;
+  /** City id from `INDIA_CITIES`, used by the city scope. */
+  city: string;
   ruleset: Ruleset;
   timer: TimerOption;
 }

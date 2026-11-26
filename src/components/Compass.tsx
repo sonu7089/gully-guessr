@@ -10,7 +10,6 @@ export function Compass({ heading }: { heading: number | null }) {
         <span className="w">W</span>
       </div>
       <span className="compass__needle" aria-hidden="true" />
-      <span className="compass__deg">{known ? `${Math.round(heading!)}°` : '—'}</span>
     </div>
   );
 }

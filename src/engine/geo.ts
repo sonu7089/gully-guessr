@@ -5,7 +5,7 @@ const EARTH_RADIUS_KM = 6371.0088;
 const toRad = (d: number) => (d * Math.PI) / 180;
 const toDeg = (r: number) => (r * 180) / Math.PI;
 
-interface IndexedRing {
+export interface IndexedRing {
   ring: Ring;
   minX: number;
   maxX: number;
@@ -13,16 +13,21 @@ interface IndexedRing {
   maxY: number;
 }
 
-const INDEXED: IndexedRing[] = INDIA_BOUNDARY.map((ring) => {
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  for (const [x, y] of ring) {
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
-  }
-  return { ring, minX, maxX, minY, maxY };
-});
+/** Precompute ring bounding boxes so containment checks can skip far-away rings. */
+export function indexRings(rings: ReadonlyArray<Ring>): IndexedRing[] {
+  return rings.map((ring) => {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const [x, y] of ring) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    return { ring, minX, maxX, minY, maxY };
+  });
+}
+
+const INDEXED: IndexedRing[] = indexRings(INDIA_BOUNDARY);
 
 /** Ray-casting point-in-polygon on a [lng, lat] ring. */
 export function pointInRing(lng: number, lat: number, ring: Ring): boolean {
@@ -35,13 +40,17 @@ export function pointInRing(lng: number, lat: number, ring: Ring): boolean {
   return inside;
 }
 
-/** True when the coordinate lies on the (simplified) Indian landmass, islands included. */
-export function isInIndia(p: LatLng): boolean {
-  for (const r of INDEXED) {
+export function inRings(p: LatLng, rings: readonly IndexedRing[]): boolean {
+  for (const r of rings) {
     if (p.lng < r.minX || p.lng > r.maxX || p.lat < r.minY || p.lat > r.maxY) continue;
     if (pointInRing(p.lng, p.lat, r.ring)) return true;
   }
   return false;
+}
+
+/** True when the coordinate lies on the (simplified) Indian landmass, islands included. */
+export function isInIndia(p: LatLng): boolean {
+  return inRings(p, INDEXED);
 }
 
 /** Approximate distance (km) from a point to a ring edge, using a local equirectangular projection. */
@@ -67,14 +76,28 @@ function distanceToRingKm(p: LatLng, ring: Ring): number {
  * ~1 km-resolution polygon.
  */
 export function isInOrNearIndia(p: LatLng, toleranceKm = 1.5): boolean {
-  if (isInIndia(p)) return true;
+  return inOrNearRings(p, INDEXED, toleranceKm);
+}
+
+export function inOrNearRings(p: LatLng, rings: readonly IndexedRing[], toleranceKm: number): boolean {
+  if (inRings(p, rings)) return true;
   const padLat = toleranceKm / 110;
   const padLng = toleranceKm / (111 * Math.cos(toRad(p.lat)));
-  for (const r of INDEXED) {
+  for (const r of rings) {
     if (p.lng < r.minX - padLng || p.lng > r.maxX + padLng || p.lat < r.minY - padLat || p.lat > r.maxY + padLat) continue;
     if (distanceToRingKm(p, r.ring) <= toleranceKm) return true;
   }
   return false;
+}
+
+/** A closed [lng, lat] ring approximating a circle, for outlining city play areas. */
+export function circleRing(center: LatLng, radiusKm: number, segments = 72): Ring {
+  const ring: [number, number][] = [];
+  for (let i = 0; i <= segments; i++) {
+    const p = destinationPoint(center, (i / segments) * 360, radiusKm);
+    ring.push([p.lng, p.lat]);
+  }
+  return ring;
 }
 
 /** Destination point given start, bearing (deg) and distance (km). */

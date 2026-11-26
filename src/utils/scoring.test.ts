@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDistance, formatPoints, haversineKm, rankForScore, scoreForDistance } from './scoring';
+import { formatDistance, formatPoints, haversineKm, INDIA_SIZE_KM, perfectRadiusKm, rankForScore, scoreForDistance } from './scoring';
 
 describe('haversineKm', () => {
   it('is zero for identical points', () => {
@@ -22,20 +22,35 @@ describe('haversineKm', () => {
 });
 
 describe('scoreForDistance', () => {
-  it('awards a perfect 5,000 within 150 m (inclusive)', () => {
+  it('sizes the All India map at ~4,450 km', () => {
+    expect(INDIA_SIZE_KM).toBeGreaterThan(4400);
+    expect(INDIA_SIZE_KM).toBeLessThan(4500);
+  });
+
+  it('awards a perfect 5,000 inside the size-relative radius', () => {
     expect(scoreForDistance(0)).toBe(5000);
-    expect(scoreForDistance(0.15)).toBe(5000);
+    expect(scoreForDistance(perfectRadiusKm(INDIA_SIZE_KM))).toBe(5000);
+    expect(perfectRadiusKm(INDIA_SIZE_KM)).toBeCloseTo(1.11, 1);
+    expect(perfectRadiusKm(30)).toBe(0.025);
   });
 
-  it('decays just outside the perfect threshold', () => {
-    expect(scoreForDistance(0.151)).toBe(4999);
+  it('follows the All India calibration points', () => {
+    expect(scoreForDistance(10)).toBeCloseTo(4889, -1);
+    expect(scoreForDistance(100)).toBeCloseTo(3993, -1);
+    expect(scoreForDistance(500)).toBeCloseTo(1624, -1);
+    expect(scoreForDistance(1000)).toBeCloseTo(528, -1);
   });
 
-  it('follows the India calibration points', () => {
-    expect(scoreForDistance(10)).toBe(4924);
-    expect(scoreForDistance(100)).toBeCloseTo(4288, -1);
-    expect(scoreForDistance(500)).toBeCloseTo(2315, -1);
-    expect(scoreForDistance(1000)).toBeCloseTo(1073, -1);
+  it('scales with the play area so the same relative miss scores the same', () => {
+    const india = scoreForDistance(INDIA_SIZE_KM * 0.1);
+    expect(scoreForDistance(60, 600)).toBe(india);
+    expect(scoreForDistance(3.7, 37)).toBe(india);
+    expect(india).toBeCloseTo(1839, -1);
+  });
+
+  it('is much stricter in a city than across India for the same distance', () => {
+    expect(scoreForDistance(2)).toBeGreaterThan(4900);
+    expect(scoreForDistance(2, 37)).toBeLessThan(3000);
   });
 
   it('never goes negative and handles missing guesses', () => {
@@ -59,8 +74,8 @@ describe('formatting', () => {
   });
 
   it('maps totals to rank titles', () => {
-    expect(rankForScore(24000)).toBe('Subcontinent Cartographer');
-    expect(rankForScore(21480)).toBe('Highway Veteran');
-    expect(rankForScore(0)).toBe('First-Time Explorer');
+    expect(rankForScore(24000)).toBe('Human GPS');
+    expect(rankForScore(21480)).toBe('Bharat Darshan Pro');
+    expect(rankForScore(0)).toBe('Lost Tourist');
   });
 });
