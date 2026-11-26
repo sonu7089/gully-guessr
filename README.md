@@ -74,6 +74,27 @@ The script reads the `VITE_*` values from your `.env`, builds the image in Cloud
 
 WebSockets on Cloud Run last at most an hour; clients reconnect and rejoin their room automatically.
 
+### Budget cap (hard stop at ₹10 a month)
+
+Budget alerts only send emails, so this repo wires the budget to a kill switch ([`guard/`](guard)):
+
+```
+Cloud Billing budget ──▶ Pub/Sub topic budget-alerts ──▶ private Cloud Run service budget-guard
+```
+
+Every time the budget publishes its running cost, the guard checks it. Once the month's cost reaches the budget it (1) removes public access from the game, (2) disables the Maps APIs, and (3) unlinks billing from **this project only**. Billing data lags by a few hours, so the final bill can land slightly above the cap. A separate daily quota of 600 paid Maps requests (about 18k a month, inside Google's free allowance) limits how fast Maps usage can grow.
+
+To turn the game back on after it trips (next month, or after raising the budget):
+
+```bash
+# 1. Console → Billing → Account management → link the project to your billing account again
+gcloud services enable maps-backend.googleapis.com geocoding-backend.googleapis.com --project <project>
+gcloud run services add-iam-policy-binding gully-guessr --region asia-south1 --project <project> \
+  --member=allUsers --role=roles/run.invoker
+```
+
+Change the cap by editing the budget amount in the console; the guard compares against whatever the budget says. Change the Maps daily limit with `gcloud beta quotas preferences update gully-daily-cap`.
+
 ## Accounts & multiplayer
 
 1. Create a Firebase project (or add Firebase to an existing Google Cloud project), add a **Web app**, and copy its config into the `VITE_FIREBASE_*` keys in `.env`.
