@@ -11,6 +11,8 @@
   <img src="https://img.shields.io/badge/multiplayer-WebSocket-7950e5?labelColor=211a4c" alt="WebSocket multiplayer" />
 </p>
 
+### 🎮 [Play it live](https://gully-guessr-ojaa6wkhaa-el.a.run.app)
+
 **Gully Guessr** drops you onto a random street somewhere in India. Walk around in Google Street View, read the shop boards and the number plates, then drop a pin on the map. The closer you are, the more you score.
 
 Solo play needs no account: open the page and play, with personal bests, settings, and recent matches kept in `localStorage`. Log in to play multiplayer: random 1v1 matchmaking, private duels, and party rooms for up to four.
@@ -53,7 +55,24 @@ npm install
 npm run dev        # http://localhost:5173 — the multiplayer game server runs inside the dev server on /ws
 ```
 
-For production, `npm run build` then `npm start` serves `dist/` and the game server from one Node process (port `PORT`, default `8080`). The host must support WebSockets; static-only hosting gives you single-player only.
+For production, `npm run build` then `npm start` serves `dist/` and the game server from one Node process (port `PORT`, default `8080`). The host must support WebSockets; static-only hosting (Vercel, Netlify, GitHub Pages) gives you single-player only.
+
+## Deploy (Google Cloud Run, free tier)
+
+The included [`Dockerfile`](Dockerfile) packages the site and the game server into one container. Cloud Run supports WebSockets, scales to zero when nobody is playing, and its free tier covers a small game.
+
+```bash
+gcloud auth login
+gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com --project <project>
+node scripts/deploy-cloudrun.mjs --project <project> --region asia-south1
+```
+
+The script reads the `VITE_*` values from your `.env`, builds the image in Cloud Build, and deploys with `--max-instances=1` (rooms live in memory, so every player must reach the same instance; this also caps your bill). After the first deploy:
+
+1. Add the service's `*.run.app` host under Firebase **Authentication → Settings → Authorized domains**, or logins fail on the live site.
+2. Add `https://<your-service-url>/*` to the allowed HTTP referrers on your Google Maps API key.
+
+WebSockets on Cloud Run last at most an hour; clients reconnect and rejoin their room automatically.
 
 ## Accounts & multiplayer
 

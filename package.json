@@ -26,6 +26,7 @@
     "react-dom": "^19.3.1",
     "react-leaflet": "^5.0.0",
     "three": "^0.185.1",
+    "tsx": "^4.23.15",
     "ws": "^8.23.0"
   },
   "devDependencies": {
@@ -37,7 +38,6 @@
     "@types/three": "^0.185.4",
     "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "^6.3.0",
-    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.8",
     "vitest": "^5.1.1"
